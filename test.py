@@ -2,20 +2,11 @@ import unittest
 import json
 import requests
 import urlparse
-import base64
-
-
-# easy use of settings (could be moved into standalone config file)
-settings = {
-    'api_url' : 'https://secure.gooddata.com',
-    'good_credentials': ('', ''),
-    'wrong_credentials': ('this_is_bad_name', 'this_is_bad_password')
-}
+import ConfigParser
 
 class PostUserLogin:
     """
-    class for post user data. Name of class is used in request JSON body
-
+    Class for creating json representation of USER to log in.
     """
     def __init__(self, login, password, remember=0, verify_level=0):
         self.login = login
@@ -33,49 +24,99 @@ class PostUserLogin:
         return json.dumps(s)
 
 class LoginTestCase(unittest.TestCase):
+
+    def getURL(self, url):
+        """
+        Return url to base url (depend on configuration)
+        """
+        return urlparse.urljoin(self.config.get('gdc', 'api_url'), url)
+
     def setUp(self):
+        """
+        Set up common configuration
+        """
         # POST /gdc/account/login
-        self.url = urlparse.urljoin(settings['api_url'], '/gdc/account/login')
+        # load configuration
+        self.config = ConfigParser.ConfigParser()
+        self.config.read('config_file')
+        self.url = self.getURL('gdc/account/login')
         self.headers = {"Content-Type": "application/json",
                         "Accept": "application/json" }
 
     def test_wrong_credentials(self):
         """
-        Return code is 400 with wrong credentials.
+        Tests refuse of login with wrong credentials
         """
-        user = PostUserLogin(settings['wrong_credentials'][0],
-                             settings['wrong_credentials'][1])
-        req = requests.post(self.url, headers=self.headers, data=user.to_json())
+
+        # set up user with wrong credentials
+        user = PostUserLogin(self.config.get('gdc', 'wrong_username'),
+                             self.config.get('gdc', 'wrong_password'))
+
+        # post login and wait for 400 error code
+        # TODO handle SSL certificates and remove verify=False
+        req = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
         self.assertEquals(req.status_code, 400)
 
-    @unittest.skip("Check where is mistake")
     def test_good_credentials(self):
         """
-        Return code is 200 when user is authenticated and it returns it's profile ID
+        Tests successful login with correct credentials.
+        Tests retrieving Super Secure Token, Temporary Token and returns profile_id
+
+        :return profile_ID of logged user
         """
-        user = PostUserLogin(settings['good_credentials'][0],
-                             settings['good_credentials'][1])
-        req = requests.post(self.url, headers=self.headers, data=user.to_json())
-        print(req.request)
-        print(req.headers)
-        print(req.cookies['GDCAuthSST'])
-        # now failing as 'wrong credentials' with 401.
-        # But API docs says only 200, 403 and 400 are only possible response codes
-        # TODO find out where is problem
+        # set up user with good credentials
+        user = PostUserLogin(self.config.get('gdc', 'good_username'),
+                             self.config.get('gdc', 'good_password'))
+
+        # TODO handle SSL certificates and remove verify=False
+        # post login data
+        req = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
+
+        #return this at the end
+        profile_id = json.loads(req.content)['userLogin']['profile'].split('/')[-1]
+
+        # check response if contains GDC AuthSST
+        self.assertIn('GDCAuthSST', req.cookies)
+        self.assertEquals(req.status_code, 200, "User wasn't authenticated. RetCode %s " % req.status_code)
+        token = req.cookies['GDCAuthSST']
+
+        # now set up a new request with token and GET to log in
+        cookies = {'$Version': "0",
+                   'GDCAuthSST': token,
+                   '$Path': '/gdc/account'}
+        req = requests.get(self.getURL('/gdc/account/token'), headers=self.headers, cookies=cookies, verify=False)
+        # after second round response' cookies should contain GDCAuthTT param and response code should be 200
+        self.assertIn('GDCAuthTT', req.cookies)
         self.assertEquals(req.status_code, 200, "User wasn't authenticated. RetCode %s " % req.status_code)
 
-    @unittest.skip("WOrk in progress")
+        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers, verify=False)
+        return profile_id, req.cookies['GDCAuthTT']
+
     def test_logout_authorized(self):
         """"
-        If user is authenticated response header contains it's super-secured-token. This is used for for auth phase 2
+        Tests logout of logged user. Needs profile_id returned from successful login
         """
-        user = PostUserLogin(settings['good_credentials'][0],
-                             settings['good_credentials'][1])
-        req = requests.post(self.url, headers=self.headers, data=user.to_json())
-        with self.assertRaises(KeyError):
-            profile_id = json.loads(req.content)['userLogin']['profile']
+        profile_id, token = self.test_good_credentials()
 
-            self.assertEquals(req.status_code, 200, "PASS User was authenticated.")
+        #cookies = {'GDCAuthTT': token2}
+
+        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers,
+                              #cookies=cookies,
+                              verify=False)
+
+        self.assertEquals(req.status_code, 200, "Response status code: %s" % req.status_code)
+
+    def test_logout_unauthorized(self):
+        """"
+        Tests logout of not logged user. Profile id is random text
+        """
+        profile_id = "asldkajs335l5lsadkfmsd"
+        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers, verify=False)
+        self.assertEquals(req.status_code, 404, "Response status code: %s" % req.status_code)
 
 if __name__ == '__main__':
     unittest.main()
+
