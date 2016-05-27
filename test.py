@@ -4,6 +4,11 @@ import requests
 import urlparse
 import ConfigParser
 
+
+# TODO to clear InsecureRequestWarning this scrept needs certificates set up
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
 class PostUserLogin:
     """
     Class for creating json representation of USER to log in.
@@ -24,7 +29,6 @@ class PostUserLogin:
         return json.dumps(s)
 
 class LoginTestCase(unittest.TestCase):
-    # TODO to clear InsecureRequestWarning this scrept needs certificates set up
     def getURL(self, url):
         """
         Return url to base url (depend on configuration)
@@ -43,7 +47,7 @@ class LoginTestCase(unittest.TestCase):
         self.headers = {"Content-Type": "application/json",
                         "Accept": "application/json" }
 
-    def test_wrong_credentials(self):
+    def test_negative_wrong_credentials(self):
         """
         Tests refuse of login with wrong credentials
         Response should be 400
@@ -121,7 +125,7 @@ class LoginTestCase(unittest.TestCase):
 
         self.assertEquals(res.status_code, 204, "ERROR %s" % msg)
 
-    def test_logout_not_exists_user(self):
+    def test_negative_logout_not_exists_user(self):
         """"
         Tests logout of not exists user. Profile_id is random id
         Response should be 404
@@ -154,14 +158,14 @@ class LoginTestCase(unittest.TestCase):
         self.assertEquals(res.status_code, 404, "ERROR %s" % msg)
 
     @unittest.skip("Need another user to log in and try to logout original user")
-    def test_logout_exists_user_by_another(self):
+    def test_negative_logout_exists_user_by_another(self):
         """"
         Tests logout of exists user by another not exists user. Profile_id is random id
         Response should be 404
         """
         #TODO get credentials for another user
 
-    def test_logout_exists_user_while_logout(self):
+    def test_negative_logout_exists_user_while_logout(self):
         """"
         Tests logout of exists while logout. Profile_id remains, but there is no token
         Response should be 401
@@ -200,5 +204,4 @@ class LoginTestCase(unittest.TestCase):
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(LoginTestCase)
     unittest.LoginTestCase(verbosity=2).run(suite)
-    # unittest.main(verbosity=2)
 
