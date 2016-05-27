@@ -226,5 +226,5 @@ class LoginTestCase(unittest.TestCase):
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(LoginTestCase)
-    unittest.LoginTestCase().run(suite)
+    unittest.LoginTestCase(verbosity=2).run(suite)
 
