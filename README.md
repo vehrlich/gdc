@@ -8,6 +8,6 @@ Runs with Python Unittest framework
 - test_negative_logout_not_exists_user
 - test_negative_wrong_credentials
 
-Fill up config_file with proper and wrong credentials and run tests from commandline:
+Fill up config_file with proper (of two users) and wrong credentials and run tests from commandline:
 `python -m unittest discover -v`
 

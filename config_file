@@ -1,5 +1,8 @@
 [gdc]
-wrong_username=
-wrong_password=
+wrong_username=this_is_bad_name
+wrong_password=this_is_bad_password
 good_username=
-goor_password=
+good_password=
+good_username2=
+good_password2=
+api_url=
