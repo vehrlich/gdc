@@ -24,7 +24,7 @@ class PostUserLogin:
         return json.dumps(s)
 
 class LoginTestCase(unittest.TestCase):
-
+    # TODO to clear InsecureRequestWarning this scrept needs certificates set up
     def getURL(self, url):
         """
         Return url to base url (depend on configuration)
@@ -46,6 +46,7 @@ class LoginTestCase(unittest.TestCase):
     def test_wrong_credentials(self):
         """
         Tests refuse of login with wrong credentials
+        Response should be 400
         """
 
         # set up user with wrong credentials
@@ -54,15 +55,16 @@ class LoginTestCase(unittest.TestCase):
 
         # post login and wait for 400 error code
         # TODO handle SSL certificates and remove verify=False
-        req = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
-        self.assertEquals(req.status_code, 400)
+        res = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
+        self.assertEquals(res.status_code, 400)
 
     def test_good_credentials(self):
         """
         Tests successful login with correct credentials.
         Tests retrieving Super Secure Token, Temporary Token and returns profile_id
+        Response should be 200 in every stage of authentication
 
-        :return profile_ID of logged user
+        :return profile_ID and token of logged user
         """
         # set up user with good credentials
         user = PostUserLogin(self.config.get('gdc', 'good_username'),
@@ -70,53 +72,133 @@ class LoginTestCase(unittest.TestCase):
 
         # TODO handle SSL certificates and remove verify=False
         # post login data
-        req = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
+        res = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
 
         #return this at the end
-        profile_id = json.loads(req.content)['userLogin']['profile'].split('/')[-1]
+        profile_id = json.loads(res.content)['userLogin']['profile'].split('/')[-1]
 
         # check response if contains GDC AuthSST
-        self.assertIn('GDCAuthSST', req.cookies)
-        self.assertEquals(req.status_code, 200, "User wasn't authenticated. RetCode %s " % req.status_code)
-        token = req.cookies['GDCAuthSST']
+        self.assertIn('GDCAuthSST', res.cookies)
+        self.assertEquals(res.status_code, 200, "User wasn't authenticated. RetCode %s " % res.status_code)
+        token = res.cookies['GDCAuthSST']
 
         # now set up a new request with token and GET to log in
         cookies = {'$Version': "0",
                    'GDCAuthSST': token,
                    '$Path': '/gdc/account'}
-        req = requests.get(self.getURL('/gdc/account/token'), headers=self.headers, cookies=cookies, verify=False)
+        res = requests.get(self.getURL('/gdc/account/token'), headers=self.headers, cookies=cookies, verify=False)
         # after second round response' cookies should contain GDCAuthTT param and response code should be 200
-        self.assertIn('GDCAuthTT', req.cookies)
-        self.assertEquals(req.status_code, 200, "User wasn't authenticated. RetCode %s " % req.status_code)
+        self.assertIn('GDCAuthTT', res.cookies)
+        self.assertEquals(res.status_code, 200, "User wasn't authenticated. RetCode %s " % res.status_code)
 
-        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
-                              headers=self.headers, verify=False)
-        return profile_id, req.cookies['GDCAuthTT']
+        return profile_id, res.cookies['GDCAuthTT']
 
     def test_logout_authorized(self):
         """"
         Tests logout of logged user. Needs profile_id returned from successful login
+        Response should be 204
         """
+        # log in and get user profile_id and token
         profile_id, token = self.test_good_credentials()
+        headers = self.headers
+        headers.pop("Content-Type", None)
+        cookies = {'GDCAuthTT': token}
 
-        #cookies = {'GDCAuthTT': token2}
-
-        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+        res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
                               headers=self.headers,
-                              #cookies=cookies,
+                              cookies=cookies,
                               verify=False)
 
-        self.assertEquals(req.status_code, 200, "Response status code: %s" % req.status_code)
+        # different return code has different error message. handling this
+        if res.status_code not in [204, 401]:
+            msg = ": ".join([json.loads(res.content)['error']['component'],
+                             json.loads(res.content)['error']['errorClass'],
+                             json.loads(res.content)['error']['message']])
+        elif res.status_code is 401:
+            msg = "401 Authorization Required"
+        else:
+            msg = res.status_code
 
-    def test_logout_unauthorized(self):
+        self.assertEquals(res.status_code, 204, "ERROR %s" % msg)
+
+    def test_logout_not_exists_user(self):
         """"
-        Tests logout of not logged user. Profile id is random text
+        Tests logout of not exists user. Profile_id is random id
+        Response should be 404
         """
+        # log in and get user profile_id and token
+        profile_id, token = self.test_good_credentials()
+        # change profile_id to non exists one
         profile_id = "asldkajs335l5lsadkfmsd"
-        req = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
-                              headers=self.headers, verify=False)
-        self.assertEquals(req.status_code, 404, "Response status code: %s" % req.status_code)
+
+        # update headers, remove content type and create cookie with token
+        headers = self.headers
+        headers.pop("Content-Type", None)
+        cookies = {'GDCAuthTT': token}
+
+        res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers,
+                              cookies=cookies,
+                              verify=False)
+
+        # different return code has different error message. handling this
+        if res.status_code not in [204, 401]:
+            msg = ": ".join([json.loads(res.content)['error']['component'],
+                             json.loads(res.content)['error']['errorClass'],
+                             json.loads(res.content)['error']['message']])
+        elif res.status_code is 401:
+            msg = "401 Authorization Required"
+        else:
+            msg = res.status_code
+
+        self.assertEquals(res.status_code, 404, "ERROR %s" % msg)
+
+    @unittest.skip("Need another user to log in and try to logout original user")
+    def test_logout_exists_user_by_another(self):
+        """"
+        Tests logout of exists user by another not exists user. Profile_id is random id
+        Response should be 404
+        """
+        #TODO get credentials for another user
+
+    def test_logout_exists_user_while_logout(self):
+        """"
+        Tests logout of exists while logout. Profile_id remains, but there is no token
+        Response should be 401
+        """
+        # log in and get user profile_id and token
+        profile_id, token = self.test_good_credentials()
+
+        # update headers, remove content type and create cookie with token
+        headers = self.headers
+        headers.pop("Content-Type", None)
+        cookies = {'GDCAuthTT': token}
+        #first logout
+        res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers,
+                              cookies=cookies,
+                              verify=False)
+
+        #then try to logout again without token
+        res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
+                              headers=self.headers,
+                              verify=False)
+
+        # different return code has different error message. handling this
+        # TODO make this msg generating more easy
+        if res.status_code not in [204, 401]:
+            msg = ": ".join([json.loads(res.content)['error']['component'],
+                             json.loads(res.content)['error']['errorClass'],
+                             json.loads(res.content)['error']['message']])
+        elif res.status_code is 401:
+            msg = "401 Authorization Required"
+        else:
+            msg = res.status_code
+
+        self.assertEquals(res.status_code, 401, "ERROR %s" % msg)
 
 if __name__ == '__main__':
-    unittest.main()
+    suite = unittest.TestLoader().loadTestsFromTestCase(LoginTestCase)
+    unittest.LoginTestCase(verbosity=2).run(suite)
+    # unittest.main(verbosity=2)
 
