@@ -78,7 +78,7 @@ class LoginTestCase(unittest.TestCase):
         # post login data
         res = requests.post(self.url, headers=self.headers, data=user.to_json(), verify=False)
 
-        #return this at the end
+        # return this at the end
         profile_id = json.loads(res.content)['userLogin']['profile'].split('/')[-1]
 
         # check response if contains GDC AuthSST
@@ -157,13 +157,36 @@ class LoginTestCase(unittest.TestCase):
 
         self.assertEquals(res.status_code, 404, "ERROR %s" % msg)
 
-    @unittest.skip("Need another user to log in and try to logout original user")
     def test_negative_logout_exists_user_by_another(self):
         """"
-        Tests logout of exists user by another not exists user. Profile_id is random id
-        Response should be 404
+        Tests logout of exists user by another  exists user.
+        Response should be 400
         """
-        #TODO get credentials for another user
+        # set up user with good credentials o user2
+        user2 = PostUserLogin(self.config.get('gdc', 'good_username2'),
+                              self.config.get('gdc', 'good_password2'))
+
+        # TODO handle SSL certificates and remove verify=False
+        # post login data
+        res = requests.post(self.url, headers=self.headers, data=user2.to_json(), verify=False)
+
+        # return this at the end
+        profile_id2 = json.loads(res.content)['userLogin']['profile'].split('/')[-1]
+
+        # now log in user1
+        profile_id, token = self.test_good_credentials()
+
+        # update headers, remove content type and create cookie with token
+        headers = self.headers
+        headers.pop("Content-Type", None)
+        cookies = {'GDCAuthTT': token}
+        # try to logout user2 with user1
+        res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id2),
+                              headers=self.headers,
+                              cookies=cookies,
+                              verify=False)
+        msg = res.status_code
+        self.assertEquals(res.status_code, 400, "ERROR %s" % msg)
 
     def test_negative_logout_exists_user_while_logout(self):
         """"
@@ -177,13 +200,13 @@ class LoginTestCase(unittest.TestCase):
         headers = self.headers
         headers.pop("Content-Type", None)
         cookies = {'GDCAuthTT': token}
-        #first logout
+        # first logout
         res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
                               headers=self.headers,
                               cookies=cookies,
                               verify=False)
 
-        #then try to logout again without token
+        # then try to logout again without token
         res = requests.delete(self.getURL('gdc/account/login/%s' % profile_id),
                               headers=self.headers,
                               verify=False)
@@ -203,5 +226,5 @@ class LoginTestCase(unittest.TestCase):
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(LoginTestCase)
-    unittest.LoginTestCase(verbosity=2).run(suite)
+    unittest.LoginTestCase().run(suite)
 
